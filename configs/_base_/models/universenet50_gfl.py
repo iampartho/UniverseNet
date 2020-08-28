@@ -36,7 +36,7 @@ model = dict(
     ],
     bbox_head=dict(
         type='GFLSEPCHead',
-        num_classes=80,
+        num_classes=1,
         in_channels=256,
         stacked_convs=0,
         feat_channels=256,
@@ -64,5 +64,5 @@ test_cfg = dict(
     nms_pre=1000,
     min_bbox_size=0,
     score_thr=0.05,
-    nms=dict(type='nms', iou_threshold=0.6),
+    nms=dict(type='soft_nms', iou_threshold=0.5),
     max_per_img=100)
