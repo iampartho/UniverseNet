@@ -8,7 +8,6 @@ from mmdet.core import eval_map, eval_recalls
 from .builder import DATASETS
 from .pipelines import Compose
 
-from instaboostfast import get_new_data, InstaBoostConfig
 
 @DATASETS.register_module()
 class CustomDataset(Dataset):
