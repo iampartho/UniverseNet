@@ -5,9 +5,9 @@ import numpy as np
 import random
 import torch
 from torch.utils.data import Dataset
-import torchvision.transforms.functional as tvf
-import torch.nn.functional as tnf
-import scipy.ndimage
+# import torchvision.transforms.functional as tvf
+# import torch.nn.functional as tnf
+# import scipy.ndimage
 
 from mmdet.core import eval_map, eval_recalls
 from .builder import DATASETS
