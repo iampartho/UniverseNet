@@ -3,17 +3,110 @@ from collections.abc import Sequence
 import mmcv
 import numpy as np
 import torch
+import torchvision.transforms.functional as tvf
+import torch.nn.functional as tnf
+import scipy.ndimage
+from PIL import Image
+from numpy import random
 from mmcv.parallel import DataContainer as DC
 
 from ..builder import PIPELINES
 
 
-def to_tensor(data):
+
+
+################ Rapid Blur Augmentation ########################
+
+def add_gaussian(imgs, max_var=0.1):
+    '''
+    imgs: tensor, (batch),C,H,W
+    max_var: variance is uniformly ditributed between 0~max_var
+    '''
+    var = torch.rand(1) * max_var
+    imgs = imgs + torch.randn_like(imgs) * var
+
+    return imgs
+
+
+def add_saltpepper(imgs, max_p=0.06):
+    '''
+    imgs: tensor, (batch),C,H,W
+    p: probibility to add salt and pepper
+    '''
+    c,h,w = imgs.shape[-3:]
+
+    p = torch.rand(1) * max_p
+    total = int(c*h*w * p)
+
+    idxC = torch.randint(0,c,size=(total,))
+    idxH = torch.randint(0,h,size=(total,))
+    idxW = torch.randint(0,w,size=(total,))
+    value = torch.randint(0,2,size=(total,),dtype=torch.float)
+
+    imgs[...,idxC,idxH,idxW] = value
+
+    return imgs
+
+
+def random_avg_filter(img):
+    assert img.dim() == 3
+    img = img.unsqueeze(0)
+    ks = random.choice([3,5])
+    pad_size = ks // 2
+    img = tnf.avg_pool2d(img, kernel_size=ks, stride=1, padding=pad_size)
+    return img.squeeze(0)
+
+
+def max_filter(img):
+    assert img.dim() == 3
+    img = img.unsqueeze(0)
+    img = tnf.max_pool2d(img, kernel_size=3, stride=1, padding=1)
+    return img.squeeze(0)
+
+
+
+
+
+def rapid_blur(img):
+    if np.random.rand() > 0.5:
+        img = add_gaussian(img, max_var=0.03)
+    blur = [random_avg_filter, max_filter]    
+    if np.random.rand() > 0.7:
+        blur_func = random.choice(blur)
+        img = blur_func(img)
+    if np.random.rand() > 0.5:
+        img = add_saltpepper(img, max_p=0.04)
+    return img
+
+
+
+def to_tensor_(data, rapid_blur_flag=False):
     """Convert objects of various python types to :obj:`torch.Tensor`.
 
     Supported types are: :class:`numpy.ndarray`, :class:`torch.Tensor`,
     :class:`Sequence`, :class:`int` and :class:`float`.
 
+    Args:
+        data (torch.Tensor | numpy.ndarray | Sequence | int | float): Data to
+            be converted.
+    """
+
+    
+    if isinstance(data, np.ndarray):
+        data = torch.from_numpy(data)
+        if rapid_blur_flag:
+            data = rapid_blur(data)
+            return data
+        else:
+            return data
+
+###################### End of Rapid Blur ####################################
+
+
+def to_tensor(data):
+    """Convert objects of various python types to :obj:`torch.Tensor`.
+    Supported types are: :class:`numpy.ndarray`, :class:`torch.Tensor`,
+    :class:`Sequence`, :class:`int` and :class:`float`.
     Args:
         data (torch.Tensor | numpy.ndarray | Sequence | int | float): Data to
             be converted.
@@ -187,6 +280,11 @@ class DefaultFormatBundle(object):
     - gt_semantic_seg: (1)unsqueeze dim-0 (2)to tensor, \
                        (3)to DataContainer (stack=True)
     """
+    def __init__(self,rapid_blur_augmentation=False):
+
+        self.rapid_blur_augmentation = rapid_blur_augmentation
+
+
 
     def __call__(self, results):
         """Call function to transform and format common fields in results.
@@ -206,7 +304,11 @@ class DefaultFormatBundle(object):
             if len(img.shape) < 3:
                 img = np.expand_dims(img, -1)
             img = np.ascontiguousarray(img.transpose(2, 0, 1))
-            results['img'] = DC(to_tensor(img), stack=True)
+            results['img'] = DC(to_tensor_(img, self.rapid_blur_augmentation), stack=True)
+            
+
+
+
         for key in ['proposals', 'gt_bboxes', 'gt_bboxes_ignore', 'gt_labels']:
             if key not in results:
                 continue

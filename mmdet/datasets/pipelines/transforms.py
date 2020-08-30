@@ -249,75 +249,7 @@ class Resize(object):
 ######################## Rapid's Augmentation begining ########################
 
 
-    def add_gaussian(self, imgs, max_var=0.1):
-        '''
-        imgs: tensor, (batch),C,H,W
-        max_var: variance is uniformly ditributed between 0~max_var
-        '''
-        var = torch.rand(1) * max_var
-        imgs = imgs + torch.randn_like(imgs) * var
-
-        return imgs
-
-
-    def add_saltpepper(self, imgs, max_p=0.06):
-        '''
-        imgs: tensor, (batch),C,H,W
-        p: probibility to add salt and pepper
-        '''
-        c,h,w = imgs.shape[-3:]
-
-        p = torch.rand(1) * max_p
-        total = int(c*h*w * p)
-
-        idxC = torch.randint(0,c,size=(total,))
-        idxH = torch.randint(0,h,size=(total,))
-        idxW = torch.randint(0,w,size=(total,))
-        value = torch.randint(0,2,size=(total,),dtype=torch.float)
-
-        imgs[...,idxC,idxH,idxW] = value
-
-        return imgs
-
-
-    def random_avg_filter(self, img):
-        assert img.dim() == 3
-        img = img.unsqueeze(0)
-        ks = random.choice([3,5])
-        pad_size = ks // 2
-        img = tnf.avg_pool2d(img, kernel_size=ks, stride=1, padding=pad_size)
-        return img.squeeze(0)
-
-
-    def max_filter(self, img):
-        assert img.dim() == 3
-        img = img.unsqueeze(0)
-        img = tnf.max_pool2d(img, kernel_size=3, stride=1, padding=1)
-        return img.squeeze(0)
-
-
-    def get_gaussian_kernels(self):
-        gaussian_kernels = []
-        for ks in [3,5]:
-            delta = np.zeros((ks,ks))
-            delta[ks//2,ks//2] = 1
-            kernel = scipy.ndimage.gaussian_filter(delta, sigma=3)
-            kernel = torch.from_numpy(kernel).float().view(1,1,ks,ks)
-            gaussian_kernels.append(kernel)
-        return gaussian_kernels
-
     
-    def random_gaussian_filter(self, img):
-        assert img.dim() == 3
-        gaussian_kernels = self.get_gaussian_kernels()
-        img = img.unsqueeze(1)
-        kernel = random.choice(gaussian_kernels)
-        assert torch.isclose(kernel.sum(), torch.Tensor([1]))
-        pad_size = kernel.shape[2] // 2
-        img = tnf.conv2d(img, weight=kernel, stride=1, padding=pad_size)
-        return img.squeeze(1)
-
-
     def augment_PIL(self, img):
 
         def uniform(a, b):
@@ -340,15 +272,7 @@ class Resize(object):
             img = tvf.adjust_gamma(img, uniform(0.5, 3))
 
 
-        if np.random.rand() > 0.5:
-            img = self.add_gaussian(img, max_var=0.03)
-        blur = [self.random_avg_filter, self.max_filter,
-                self.random_gaussian_filter]
-        if np.random.rand() > 0.7:
-            blur_func = random.choice(blur)
-            img = blur_func(img)
-        if np.random.rand() > 0.5:
-            img = self.add_saltpepper(img, max_p=0.04)
+        
 
         img = np.asarray(img)
         
