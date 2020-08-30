@@ -2,6 +2,7 @@ import inspect
 
 import mmcv
 import numpy as np
+from PIL import Image
 from numpy import random
 
 from mmdet.core import PolygonMasks
@@ -55,7 +56,8 @@ class Resize(object):
                  img_scale=None,
                  multiscale_mode='range',
                  ratio_range=None,
-                 keep_ratio=True):
+                 keep_ratio=True,
+                 rapid_augmentation=False):
         if img_scale is None:
             self.img_scale = None
         else:
@@ -72,6 +74,7 @@ class Resize(object):
             # mode 2: given multiple scales or a range of scales
             assert multiscale_mode in ['value', 'range']
 
+        self.rapid_augmentation = rapid_augmentation
         self.multiscale_mode = multiscale_mode
         self.ratio_range = ratio_range
         self.keep_ratio = keep_ratio
@@ -236,6 +239,127 @@ class Resize(object):
                     results[key], results['scale'], interpolation='nearest')
             results['gt_semantic_seg'] = gt_seg
 
+
+
+######################## Rapid's Augmentation begining ########################
+
+
+    def add_gaussian(self, imgs, max_var=0.1):
+        '''
+        imgs: tensor, (batch),C,H,W
+        max_var: variance is uniformly ditributed between 0~max_var
+        '''
+        var = torch.rand(1) * max_var
+        imgs = imgs + torch.randn_like(imgs) * var
+
+        return imgs
+
+
+    def add_saltpepper(self, imgs, max_p=0.06):
+        '''
+        imgs: tensor, (batch),C,H,W
+        p: probibility to add salt and pepper
+        '''
+        c,h,w = imgs.shape[-3:]
+
+        p = torch.rand(1) * max_p
+        total = int(c*h*w * p)
+
+        idxC = torch.randint(0,c,size=(total,))
+        idxH = torch.randint(0,h,size=(total,))
+        idxW = torch.randint(0,w,size=(total,))
+        value = torch.randint(0,2,size=(total,),dtype=torch.float)
+
+        imgs[...,idxC,idxH,idxW] = value
+
+        return imgs
+
+
+    def random_avg_filter(self, img):
+        assert img.dim() == 3
+        img = img.unsqueeze(0)
+        ks = random.choice([3,5])
+        pad_size = ks // 2
+        img = tnf.avg_pool2d(img, kernel_size=ks, stride=1, padding=pad_size)
+        return img.squeeze(0)
+
+
+    def max_filter(self, img):
+        assert img.dim() == 3
+        img = img.unsqueeze(0)
+        img = tnf.max_pool2d(img, kernel_size=3, stride=1, padding=1)
+        return img.squeeze(0)
+
+
+    def get_gaussian_kernels(self):
+        gaussian_kernels = []
+        for ks in [3,5]:
+            delta = np.zeros((ks,ks))
+            delta[ks//2,ks//2] = 1
+            kernel = scipy.ndimage.gaussian_filter(delta, sigma=3)
+            kernel = torch.from_numpy(kernel).float().view(1,1,ks,ks)
+            gaussian_kernels.append(kernel)
+        return gaussian_kernels
+
+    
+    def random_gaussian_filter(self, img):
+        assert img.dim() == 3
+        gaussian_kernels = self.get_gaussian_kernels()
+        img = img.unsqueeze(1)
+        kernel = random.choice(gaussian_kernels)
+        assert torch.isclose(kernel.sum(), torch.Tensor([1]))
+        pad_size = kernel.shape[2] // 2
+        img = tnf.conv2d(img, weight=kernel, stride=1, padding=pad_size)
+        return img.squeeze(1)
+
+
+    def augment_PIL(self, img):
+
+        def uniform(a, b):
+            return a + np.random.rand() * (b-a)
+
+        img = Image.fromarray(img)
+        if np.random.rand() > 0.4:
+            img = tvf.adjust_brightness(img, uniform(0.3,1.5))
+        if np.random.rand() > 0.5:
+            factor = 2 ** uniform(-1, 1)
+            img = tvf.adjust_contrast(img, factor) # 0.5 ~ 2
+        if np.random.rand() > 0.6:
+            img = tvf.adjust_hue(img, uniform(-0.1,0.1))
+        if np.random.rand() > 0.6:
+            factor = uniform(0,2)
+            if factor > 1:
+                factor = 1 + uniform(0, 2)
+            img = tvf.adjust_saturation(img, factor) # 0 ~ 3
+        if np.random.rand() > 0.5:
+            img = tvf.adjust_gamma(img, uniform(0.5, 3))
+
+
+        if np.random.rand() > 0.5:
+            img = self.add_gaussian(img, max_var=0.03)
+        blur = [self.random_avg_filter, self.max_filter,
+                self.random_gaussian_filter]
+        if np.random.rand() > 0.7:
+            blur_func = random.choice(blur)
+            img = blur_func(img)
+        if np.random.rand() > 0.5:
+            img = self.add_saltpepper(img, max_p=0.04)
+
+        img = np.asarray(img)
+        
+        # horizontal flip
+        
+        # # random rotation
+        # rand_degree = np.random.rand() * 360
+        # if self.coco:
+        #     img, labels = augUtils.rotate(img, rand_degree, labels, expand=True)
+        # else:
+        #     img, labels = augUtils.rotate(img, rand_degree, labels, expand=False)
+        return img
+######################## Rapid's Augmentation End ########################
+
+
+
     def __call__(self, results):
         """Call function to resize images, bounding boxes, masks, semantic
         segmentation map.
@@ -251,6 +375,7 @@ class Resize(object):
         if 'scale' not in results:
             if 'scale_factor' in results:
                 img_shape = results['img'].shape[:2]
+                print("\n\n\nWHat is this? \n\n\n", results['img'], type(results['img']))
                 scale_factor = results['scale_factor']
                 assert isinstance(scale_factor, float)
                 results['scale'] = tuple(
@@ -260,7 +385,8 @@ class Resize(object):
         else:
             assert 'scale_factor' not in results, (
                 'scale and scale_factor cannot be both set.')
-
+        if self.rapid_augmentation :
+            results['img'] = self.augment_PIL(results['img'])
         self._resize_img(results)
         self._resize_bboxes(results)
         self._resize_masks(results)
