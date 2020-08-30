@@ -4,6 +4,11 @@ import mmcv
 import numpy as np
 from PIL import Image
 from numpy import random
+import torchvision.transforms.functional as tvf
+import torch.nn.functional as tnf
+import scipy.ndimage
+import torch
+
 
 from mmdet.core import PolygonMasks
 from mmdet.core.evaluation.bbox_overlaps import bbox_overlaps
