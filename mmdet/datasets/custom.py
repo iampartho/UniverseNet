@@ -3,11 +3,12 @@ import os.path as osp
 import mmcv
 import numpy as np
 from torch.utils.data import Dataset
+import torchvision.transforms.functional as tvf
 
 from mmdet.core import eval_map, eval_recalls
 from .builder import DATASETS
 from .pipelines import Compose
-
+import extra_augmentation as augUtils
 
 @DATASETS.register_module()
 class CustomDataset(Dataset):
@@ -108,6 +109,45 @@ class CustomDataset(Dataset):
         """Load annotation from annotation file."""
         return mmcv.load(ann_file)
 
+
+
+
+    def augment_PIL(self, img):
+        if np.random.rand() > 0.4:
+            img = tvf.adjust_brightness(img, uniform(0.3,1.5))
+        if np.random.rand() > 0.5:
+            factor = 2 ** uniform(-1, 1)
+            img = tvf.adjust_contrast(img, factor) # 0.5 ~ 2
+        if np.random.rand() > 0.6:
+            img = tvf.adjust_hue(img, uniform(-0.1,0.1))
+        if np.random.rand() > 0.6:
+            factor = uniform(0,2)
+            if factor > 1:
+                factor = 1 + uniform(0, 2)
+            img = tvf.adjust_saturation(img, factor) # 0 ~ 3
+        if np.random.rand() > 0.5:
+            img = tvf.adjust_gamma(img, uniform(0.5, 3))
+
+
+        if np.random.rand() > 0.5:
+            img = augUtils.add_gaussian(img, max_var=0.03)
+        blur = [augUtils.random_avg_filter, augUtils.max_filter,
+                augUtils.random_gaussian_filter]
+        if np.random.rand() > 0.8:
+            blur_func = random.choice(blur)
+            img = blur_func(img)
+        if np.random.rand() > 0.5:
+            img = augUtils.add_saltpepper(img, max_p=0.04)
+        # horizontal flip
+        
+        # # random rotation
+        # rand_degree = np.random.rand() * 360
+        # if self.coco:
+        #     img, labels = augUtils.rotate(img, rand_degree, labels, expand=True)
+        # else:
+        #     img, labels = augUtils.rotate(img, rand_degree, labels, expand=False)
+        return img
+
     def load_proposals(self, proposal_file):
         """Load proposal from proposal file."""
         return mmcv.load(proposal_file)
@@ -188,6 +228,7 @@ class CustomDataset(Dataset):
             if data is None:
                 idx = self._rand_another(idx)
                 continue
+            print("\n\n\n\nThis is the data keys and type\n", data.keys(), type(data))
             return data
 
     def prepare_train_img(self, idx):
