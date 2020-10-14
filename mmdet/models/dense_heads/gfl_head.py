@@ -427,14 +427,6 @@ class GFLHead(AnchorHead):
                                                 mlvl_anchors, img_shape,
                                                 scale_factor, cfg, rescale,
                                                 nms)
-            
-            # print("\n\n\n This is proposal type ", type(proposals))
-            # print("\n\n\n This is proposal 1 type ", type(proposals[0]))
-            # print("\n\n\n This is proposal 1 [0] ", proposals[0][0])
-            # print("\n\n\n This is proposal 1 shape ", proposals[0].shape)
-            # print("\n\n\n This is proposal 2 [0] ", proposals[1][0])
-            # print("\n\n\n This is proposal 2 shape ", proposals[1].shape)
-            # print("\n\n\n")
             result_list.append(proposals)
         return result_list
 
@@ -491,7 +483,7 @@ class GFLHead(AnchorHead):
             bbox_pred = self.integral(bbox_pred) * stride[0]
 
             nms_pre = cfg.get('nms_pre', -1)
-            if nms_pre > 0 and scores.shape[0] > nms_pre and False:
+            if nms_pre > 0 and scores.shape[0] > nms_pre:
                 max_scores, _ = scores.max(dim=1)
                 _, topk_inds = max_scores.topk(nms_pre)
                 anchors = anchors[topk_inds, :]
@@ -514,17 +506,13 @@ class GFLHead(AnchorHead):
         padding = mlvl_scores.new_zeros(mlvl_scores.shape[0], 1)
         mlvl_scores = torch.cat([mlvl_scores, padding], dim=1)
 
-        if nms and False:
+        if nms:
             det_bboxes, det_labels = multiclass_nms(mlvl_bboxes, mlvl_scores,
                                                     cfg.score_thr, cfg.nms,
                                                     cfg.max_per_img)
             return det_bboxes, det_labels
         else:
-            det_boxes = torch.zeros(len(mlvl_bboxes), 5).to('cuda:0')
-            det_boxes[:, :-1] = mlvl_bboxes
-            det_boxes[:, -1] = mlvl_scores[:, 0]
-
-            return det_boxes, mlvl_scores[:,1].to('cuda:0')
+            return mlvl_bboxes, mlvl_scores
 
     def get_targets(self,
                     anchor_list,
